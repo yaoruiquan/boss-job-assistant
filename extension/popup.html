@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>BOSS Job Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div>
+          <h1>BOSS Assistant</h1>
+          <p id="profile">Chrome 9335 / isolated profile</p>
+        </div>
+        <span id="state" class="state">未连接</span>
+      </header>
+
+      <section class="actions">
+        <button id="status">检查连接</button>
+        <button id="startChrome">启动专用 Chrome</button>
+        <button id="snapshot">只读扫描</button>
+        <button id="greetCurrent" class="primary">打招呼一次</button>
+      </section>
+
+      <section class="summary">
+        <div>
+          <span>今日日志</span>
+          <strong id="runCount">-</strong>
+        </div>
+        <div>
+          <span>最近原因</span>
+          <strong id="lastReason">-</strong>
+        </div>
+      </section>
+
+      <pre id="output" class="output"></pre>
+
+      <footer>
+        <button id="options">规则设置</button>
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

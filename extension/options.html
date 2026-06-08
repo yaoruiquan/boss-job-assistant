@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>BOSS Job Assistant 设置</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <h1>BOSS Job Assistant 设置</h1>
+      <form id="form">
+        <label>城市<input id="city" name="city"></label>
+        <label>岗位关键词<input id="title" name="title"></label>
+        <label>工作类型<input id="employmentType" name="employmentType"></label>
+        <label>公司规模<textarea id="companySize" name="companySize"></textarea></label>
+        <label>融资阶段<textarea id="financingStage" name="financingStage"></textarea></label>
+        <label>每日上限<input id="dailyLimit" name="dailyLimit" type="number" min="1" max="150"></label>
+        <label>单轮上限<input id="sessionLimit" name="sessionLimit" type="number" min="1" max="50"></label>
+        <label>打招呼语<textarea id="greeting" name="greeting"></textarea></label>
+        <button type="submit">保存</button>
+      </form>
+      <p id="saved"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

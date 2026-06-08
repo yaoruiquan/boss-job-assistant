@@ -32,6 +32,8 @@
 ├── .env.example
 ├── agents/
 ├── assets/
+├── extension/
+├── native-host/
 ├── references/
 └── scripts/
 ```
@@ -46,6 +48,7 @@
 - `references/rule-schema.md`：规则 JSON 格式。
 - `references/workflow.md`：岗位筛选、打招呼、回复处理流程。
 - `references/failure-reasons.md`：统一失败原因分类。
+- `references/chrome-extension.md`：Chrome 插件 + Native Host 模式。
 - `scripts/start-chrome-debug.sh`：启动专用 Chrome。
 - `scripts/chrome-devtools-mcp-wrapper.sh`：连接 `chrome-devtools-mcp`。
 - `scripts/evaluate_job.py`：本地规则判定。
@@ -53,6 +56,8 @@
 - `scripts/mcp_full_greet_flow.js`：单岗位完整沟通尝试脚本。
 - `scripts/lib/boss_policy.js`：统一 MCP 异常、人工关口、沟通结果分类。
 - `scripts/test_policy.js`：失败分类和强成功信号的回归测试。
+- `extension/`：Chrome Manifest V3 插件。
+- `native-host/`：Chrome Native Messaging 本地桥接。
 
 ## 安装依赖
 
@@ -186,9 +191,44 @@ node --check scripts/mcp_dump_snapshot.js
 node --check scripts/mcp_boss_current_page_greet.js
 node --check scripts/mcp_hangzhou_ai_smoke.js
 node --check scripts/mcp_greet_once.js
+node --check native-host/host.js
 node scripts/test_policy.js
+node scripts/test_native_host.js
 python3 -m py_compile scripts/evaluate_job.py
 ```
+
+## Chrome 插件模式
+
+插件模式的职责是提供控制台和规则设置；真实页面动作仍由 Native Host 调用本地 MCP 脚本完成。
+
+```text
+extension/popup.js
+  -> chrome.runtime.sendNativeMessage("com.yao.boss_job_assistant")
+  -> native-host/host.js
+  -> scripts/mcp_dump_snapshot.js / scripts/mcp_snapshot_status.js
+  -> chrome-devtools-mcp
+```
+
+安装步骤：
+
+1. 打开 `chrome://extensions`。
+2. 开启开发者模式。
+3. 点击“加载已解压的扩展程序”，选择本仓库的 `extension/` 目录。
+4. 复制扩展 ID。
+5. 注册 Native Host：
+
+```bash
+./native-host/install-host.sh <extension-id>
+```
+
+插件按钮：
+
+- `检查连接`：检查专用 Chrome `127.0.0.1:9335` 和最近日志。
+- `启动专用 Chrome`：启动 isolated profile。
+- `只读扫描`：运行 MCP snapshot 状态检查。
+- `打招呼一次`：运行一次 `--greet-current`，失败会写入 JSONL 日志。
+
+插件不直接用 content script 点击 BOSS 页面，也不把主流程改成 DOM `.click()`。content script 只显示一个本页已连接的小浮层。
 
 ## MCP 执行原则
 

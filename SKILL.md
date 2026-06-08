@@ -34,6 +34,7 @@ MVP 默认动作：
 - 规则格式：`references/rule-schema.md`
 - 执行流程：`references/workflow.md`
 - 失败原因：`references/failure-reasons.md`
+- Chrome 插件模式：`references/chrome-extension.md`
 
 ## 固定命令
 
@@ -81,6 +82,8 @@ MCP wrapper：
 - `scripts/lib/boss_policy.js`：统一浏览器异常、人工关口和点击后结果分类。
 - `scripts/lib/run_log.js`：把打招呼尝试写入本地 `data/runs-YYYY-MM-DD.jsonl`，默认不提交。
 - `scripts/test_policy.js`：策略分类的轻量回归测试。
+- `extension/`：Chrome Manifest V3 插件，用于规则设置、状态查看和人工触发。
+- `native-host/`：Chrome Native Messaging host，用于从插件调用本地 MCP 脚本。
 
 ## 执行原则
 
@@ -92,3 +95,4 @@ MCP wrapper：
 6. 不自动捏造个人经历、薪资、到岗时间或项目事实；回复内容规则后续单独配置。
 7. 打招呼成功必须有强证据：`继续沟通`、`已沟通`、聊天输入区、或跳转 `/web/geek/chat`。点击后跳首页或仍无法确认时必须判为失败。
 8. 点击 `立即沟通` 后出现 target/page closed 时，记录为 `quota_or_rate_limit_suspected`，停止继续点击，不重试同一岗位。
+9. Chrome 插件模式下，插件只做 UI 和 Native Messaging 调度；主流程不得改成 content script 直接点页面。
