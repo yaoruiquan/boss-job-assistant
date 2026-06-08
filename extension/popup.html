@@ -6,38 +6,57 @@
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
-    <main class="panel">
-      <header class="header">
+    <main class="shell">
+      <header class="topbar">
         <div>
           <h1>BOSS Assistant</h1>
-          <p id="profile">Chrome 9335 / isolated profile</p>
+          <p id="subtitle">9335 / isolated profile</p>
         </div>
-        <span id="state" class="state">未连接</span>
+        <span id="connectionBadge" class="badge neutral">未检查</span>
       </header>
 
-      <section class="actions">
-        <button id="status">检查连接</button>
-        <button id="startChrome">启动专用 Chrome</button>
-        <button id="snapshot">只读扫描</button>
-        <button id="greetCurrent" class="primary">打招呼一次</button>
+      <section class="switchboard">
+        <button id="enableToggle" class="switch off" type="button">
+          <span class="switch-light"></span>
+          <span id="enableLabel">开启助手</span>
+        </button>
+        <button id="pauseToggle" class="switch muted" type="button">
+          <span class="switch-light"></span>
+          <span id="pauseLabel">暂停</span>
+        </button>
       </section>
 
-      <section class="summary">
+      <section class="meter">
         <div>
-          <span>今日日志</span>
+          <span>连接</span>
+          <strong id="connectionState">-</strong>
+        </div>
+        <div>
+          <span>控制</span>
+          <strong id="controlState">未开启</strong>
+        </div>
+        <div>
+          <span>日志</span>
           <strong id="runCount">-</strong>
         </div>
-        <div>
-          <span>最近原因</span>
-          <strong id="lastReason">-</strong>
-        </div>
       </section>
 
-      <pre id="output" class="output"></pre>
+      <section class="commands">
+        <button id="status" type="button">检查</button>
+        <button id="startChrome" type="button">启动 Chrome</button>
+        <button id="snapshot" type="button">扫描</button>
+        <button id="greetDetail" type="button">详情沟通</button>
+        <button id="greetCurrent" class="primary" type="button">列表沟通</button>
+        <button id="options" type="button">规则</button>
+      </section>
 
-      <footer>
-        <button id="options">规则设置</button>
-      </footer>
+      <section class="result">
+        <div class="result-head">
+          <span id="lastReason">等待操作</span>
+          <time id="lastUpdated">-</time>
+        </div>
+        <pre id="output"></pre>
+      </section>
     </main>
     <script src="popup.js"></script>
   </body>

@@ -223,12 +223,26 @@ extension/popup.js
 
 插件按钮：
 
+- `开启助手`：允许执行沟通类动作；默认关闭。
+- `暂停/继续`：暂停时会阻止 `列表沟通` 和 `详情沟通`。
 - `检查连接`：检查专用 Chrome `127.0.0.1:9335` 和最近日志。
 - `启动专用 Chrome`：启动 isolated profile。
 - `只读扫描`：运行 MCP snapshot 状态检查。
-- `打招呼一次`：运行一次 `--greet-current`，失败会写入 JSONL 日志。
+- `列表沟通`：运行一次 `--greet-current`，失败会写入 JSONL 日志。
+- `详情沟通`：运行一次 `--greet-detail`，适合当前已打开岗位详情页。
 
 插件不直接用 content script 点击 BOSS 页面，也不把主流程改成 DOM `.click()`。content script 只显示一个本页已连接的小浮层。
+
+测试顺序：
+
+1. 先点 `开启助手`。
+2. 点 `启动 Chrome`。
+3. 在专用 Chrome 里人工登录 BOSS。
+4. 回到插件点 `检查`。
+5. 先点 `扫描` 验证 MCP 路径。
+6. 确认页面和规则无误后，再点 `列表沟通` 或 `详情沟通`。
+
+如果点击沟通类按钮返回 `assistant_disabled`，说明还没点 `开启助手`。如果返回 `assistant_paused`，点 `继续` 后再试。
 
 ## MCP 执行原则
 

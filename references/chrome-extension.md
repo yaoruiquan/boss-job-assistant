@@ -44,9 +44,13 @@ Chrome extension popup/options
 
 ## 命令映射
 
+- `assistant_enabled`：扩展本地状态，允许沟通类动作。
+- `assistant_paused`：扩展本地状态，阻止沟通类动作。
 - `status`：检查 `127.0.0.1:9335/json/version` 和最近运行日志。
 - `start_chrome`：启动专用 Chrome profile。
 - `snapshot`：运行 `scripts/mcp_snapshot_status.js`。
 - `greet_current`：运行 `scripts/mcp_dump_snapshot.js --greet-current`。
 - `greet_detail`：运行 `scripts/mcp_dump_snapshot.js --greet-detail`。
 - `last_runs`：读取 `data/runs-YYYY-MM-DD.jsonl`。
+
+`greet_current` 和 `greet_detail` 必须在扩展 popup 中先开启助手，且当前不是暂停状态。这个门禁只在扩展层生效，不改变本地 MCP 脚本的安全边界。
