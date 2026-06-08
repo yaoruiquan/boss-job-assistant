@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "boss-chrome": {
+      "command": "/bin/bash",
+      "args": [
+        "-lc",
+        "for d in \"${BOSS_JOB_ASSISTANT_SKILL_ROOT:-}\" /Users/yao/.codex/skills/boss-job-assistant; do if [ -n \"$d\" ] && [ -x \"$d/scripts/chrome-devtools-mcp-wrapper.sh\" ]; then exec \"$d/scripts/chrome-devtools-mcp-wrapper.sh\"; fi; done; echo 'boss-job-assistant chrome-devtools-mcp-wrapper.sh not found' >&2; exit 1"
+      ]
+    }
+  }
+}

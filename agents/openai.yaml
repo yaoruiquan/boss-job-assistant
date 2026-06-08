@@ -1,0 +1,12 @@
+interface:
+  display_name: "BOSS 求职助手"
+  short_description: "按规则筛选岗位并辅助沟通"
+  brand_color: "#2563EB"
+  default_prompt: "Use $boss-job-assistant to configure BOSS job matching rules and run a conservative Chrome DevTools MCP assisted greeting workflow."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "chrome-devtools-mcp"
+      description: "Attach to a user-controlled Chrome browser through Chrome DevTools Protocol."
+policy:
+  allow_implicit_invocation: true
