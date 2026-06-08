@@ -222,6 +222,8 @@ extension/popup.js
 
 如果自动识别失败，再复制扩展 ID 后执行 `./native-host/install-host.sh <extension-id>`。
 
+安装脚本会生成 Native Host manifest 和一个 shell 启动器，启动器使用当前检测到的 Node.js 绝对路径，避免 Chrome GUI 环境找不到 `node`。
+
 插件按钮：
 
 - `开启助手`：允许执行沟通类动作；默认关闭。

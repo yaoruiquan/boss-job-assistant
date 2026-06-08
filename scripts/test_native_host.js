@@ -21,20 +21,39 @@ function parseFrame(buffer) {
   return JSON.parse(buffer.slice(4, length + 4).toString("utf8"));
 }
 
-const child = spawn(process.execPath, [hostPath], {
-  cwd: path.join(__dirname, ".."),
-  stdio: ["pipe", "pipe", "inherit"]
-});
+function runHost(message) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [hostPath], {
+      cwd: path.join(__dirname, ".."),
+      stdio: ["pipe", "pipe", "inherit"]
+    });
+    const chunks = [];
+    child.stdout.on("data", (chunk) => chunks.push(chunk));
+    child.stdin.write(frame(message));
+    child.stdin.end();
+    child.on("exit", (code) => {
+      try {
+        assert.strictEqual(code, 0);
+        resolve(parseFrame(Buffer.concat(chunks)));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
 
-const chunks = [];
-child.stdout.on("data", (chunk) => chunks.push(chunk));
-child.stdin.write(frame({ command: "ping" }));
-child.stdin.end();
+(async () => {
+  const ping = await runHost({ command: "ping" });
+  assert.strictEqual(ping.ok, true);
+  assert.strictEqual(ping.reason, "pong");
 
-child.on("exit", (code) => {
-  assert.strictEqual(code, 0);
-  const response = parseFrame(Buffer.concat(chunks));
-  assert.strictEqual(response.ok, true);
-  assert.strictEqual(response.reason, "pong");
+  const status = await runHost({ command: "status" });
+  assert.strictEqual(typeof status.ok, "boolean");
+  assert.ok(status.reason);
+  assert.strictEqual(status.port, 9335);
+
   console.log("native host tests passed");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });

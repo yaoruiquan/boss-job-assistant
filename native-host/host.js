@@ -15,11 +15,28 @@ function sendMessage(message) {
   const body = Buffer.from(JSON.stringify(message), "utf8");
   const header = Buffer.alloc(4);
   header.writeUInt32LE(body.length, 0);
-  process.stdout.write(Buffer.concat([header, body]));
+  return new Promise((resolve) => process.stdout.write(Buffer.concat([header, body]), resolve));
 }
 
 function readMessages(onMessage) {
   let buffer = Buffer.alloc(0);
+  let ended = false;
+  let pending = 0;
+
+  function maybeExit() {
+    if (ended && pending === 0) process.exit(0);
+  }
+
+  function dispatch(message) {
+    pending += 1;
+    Promise.resolve(onMessage(message))
+      .catch((error) => sendMessage({ ok: false, reason: "native_host_error", error: error.message }))
+      .finally(() => {
+        pending -= 1;
+        maybeExit();
+      });
+  }
+
   process.stdin.on("data", (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
     while (buffer.length >= 4) {
@@ -28,13 +45,16 @@ function readMessages(onMessage) {
       const raw = buffer.slice(4, length + 4).toString("utf8");
       buffer = buffer.slice(length + 4);
       try {
-        onMessage(JSON.parse(raw));
+        dispatch(JSON.parse(raw));
       } catch (error) {
-        sendMessage({ ok: false, reason: "native_message_parse_failed", error: error.message });
+        dispatch({ command: "__parse_error__", error: error.message });
       }
     }
   });
-  process.stdin.on("end", () => process.exit(0));
+  process.stdin.on("end", () => {
+    ended = true;
+    maybeExit();
+  });
 }
 
 function chromeVersion() {
@@ -138,6 +158,9 @@ function lastRuns(limit = 20) {
 
 async function handle(message) {
   const command = message?.command;
+  if (command === "__parse_error__") {
+    return { ok: false, reason: "native_message_parse_failed", error: message.error };
+  }
   if (command === "ping") return { ok: true, reason: "pong" };
   if (command === "status") {
     const chrome = await chromeVersion();
@@ -172,8 +195,7 @@ async function handle(message) {
   return { ok: false, reason: "unknown_native_command", command };
 }
 
-readMessages((message) => {
-  handle(message)
-    .then((result) => sendMessage(result))
-    .catch((error) => sendMessage({ ok: false, reason: "native_host_error", error: error.message }));
+readMessages(async (message) => {
+  const result = await handle(message);
+  await sendMessage(result);
 });

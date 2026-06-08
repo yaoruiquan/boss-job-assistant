@@ -20,6 +20,14 @@ Chrome 扩展通过 Native Messaging 调用本地 `host.js`。`host.js` 只调�
 ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.yao.boss_job_assistant.json
 ```
 
+安装脚本还会生成：
+
+```text
+~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.yao.boss_job_assistant.sh
+```
+
+这个启动器会用安装时检测到的 Node.js 绝对路径执行 `host.js`，避免 Chrome GUI 环境找不到 `node`。
+
 ## 命令
 
 - `status`：检查 `127.0.0.1:9335/json/version` 和最近日志。

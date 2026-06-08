@@ -6,6 +6,8 @@ SKILL_ROOT="$(dirname "$SCRIPT_DIR")"
 HOST_PATH="${SCRIPT_DIR}/host.js"
 TARGET_DIR="${HOME}/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 TARGET_FILE="${TARGET_DIR}/com.yao.boss_job_assistant.json"
+TARGET_RUNNER="${TARGET_DIR}/com.yao.boss_job_assistant.sh"
+NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 EXTENSION_ID="${1:-auto}"
 
 if [[ "$EXTENSION_ID" == "auto" ]]; then
@@ -50,17 +52,34 @@ if [[ ! "$EXTENSION_ID" =~ ^[a-p]{32}$ ]]; then
   exit 1
 fi
 
-if [[ ! -x "$HOST_PATH" ]]; then
-  chmod +x "$HOST_PATH"
+if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+  echo "Node.js executable not found. Set NODE_BIN=/absolute/path/to/node and rerun." >&2
+  exit 1
 fi
 
 mkdir -p "$TARGET_DIR"
-sed \
-  -e "s#__HOST_PATH__#${HOST_PATH}#g" \
-  -e "s#__EXTENSION_ID__#${EXTENSION_ID}#g" \
-  "${SCRIPT_DIR}/com.yao.boss_job_assistant.json.template" > "$TARGET_FILE"
+cat > "$TARGET_RUNNER" <<EOF
+#!/bin/bash
+exec "$NODE_BIN" "$HOST_PATH"
+EOF
+chmod +x "$TARGET_RUNNER"
+
+EXTENSION_ID="$EXTENSION_ID" TARGET_RUNNER="$TARGET_RUNNER" python3 - <<'PY' > "$TARGET_FILE"
+import json
+import os
+
+print(json.dumps({
+    "name": "com.yao.boss_job_assistant",
+    "description": "BOSS Job Assistant native host",
+    "path": os.environ["TARGET_RUNNER"],
+    "type": "stdio",
+    "allowed_origins": [f"chrome-extension://{os.environ['EXTENSION_ID']}/"],
+}, ensure_ascii=False, indent=2))
+PY
 
 echo "Installed native host manifest:"
 echo "$TARGET_FILE"
+echo "Installed native host runner:"
+echo "$TARGET_RUNNER"
 echo "Allowed extension:"
 echo "chrome-extension://${EXTENSION_ID}/"
