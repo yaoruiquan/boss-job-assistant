@@ -17,3 +17,6 @@ dist/
 build/
 __pycache__/
 *.pyc
+data/*.jsonl
+data/*.json
+runs/

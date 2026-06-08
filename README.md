@@ -45,11 +45,14 @@
 - `references/filter-conditions.md`：筛选字段设计。
 - `references/rule-schema.md`：规则 JSON 格式。
 - `references/workflow.md`：岗位筛选、打招呼、回复处理流程。
+- `references/failure-reasons.md`：统一失败原因分类。
 - `scripts/start-chrome-debug.sh`：启动专用 Chrome。
 - `scripts/chrome-devtools-mcp-wrapper.sh`：连接 `chrome-devtools-mcp`。
 - `scripts/evaluate_job.py`：本地规则判定。
 - `scripts/mcp_dump_snapshot.js`：MCP 只读快照，也包含当前页/详情页 smoke 辅助模式。
 - `scripts/mcp_full_greet_flow.js`：单岗位完整沟通尝试脚本。
+- `scripts/lib/boss_policy.js`：统一 MCP 异常、人工关口、沟通结果分类。
+- `scripts/test_policy.js`：失败分类和强成功信号的回归测试。
 
 ## 安装依赖
 
@@ -176,6 +179,17 @@ export BOSS_JOB_ASSISTANT_SKILL_ROOT=/path/to/boss-job-assistant
 python3 scripts/evaluate_job.py assets/rules.example.json assets/job.example.json
 ```
 
+## 本地验证
+
+```bash
+node --check scripts/mcp_dump_snapshot.js
+node --check scripts/mcp_boss_current_page_greet.js
+node --check scripts/mcp_hangzhou_ai_smoke.js
+node --check scripts/mcp_greet_once.js
+node scripts/test_policy.js
+python3 -m py_compile scripts/evaluate_job.py
+```
+
 ## MCP 执行原则
 
 浏览器阶段必须使用 Chrome DevTools MCP 工具流：
@@ -215,6 +229,14 @@ node scripts/mcp_dump_snapshot.js --greet-current 1500
 ```bash
 node scripts/mcp_dump_snapshot.js --greet-detail 0
 ```
+
+`--greet-current` 和 `--greet-detail` 会写入本地 JSONL 运行日志：
+
+```text
+data/runs-YYYY-MM-DD.jsonl
+```
+
+日志只保存在本地，默认不提交到 Git。每条记录包含时间、动作 trace、候选岗位、证据字段、失败原因和必要的 snapshot 摘要。
 
 完整沟通尝试：
 
@@ -264,9 +286,17 @@ node scripts/mcp_full_greet_flow.js 'https://www.zhipin.com/job_detail/xxx.html'
 
 - 停止当天自动打招呼。
 - 不重复点击同一岗位。
-- 标记为 `unknown_after_click`。
+- 标记为 `quota_or_rate_limit_suspected`；如果没有明确 target/page closed 证据，则标记为 `unknown_after_click`。
 - 如消息页没有新会话，不计入成功。
 - 后续只做只读筛选和记录。
+
+脚本会优先把这种情况归类为：
+
+```text
+quota_or_rate_limit_suspected
+```
+
+这不是成功，也不是明确失败投递；它表示账号额度、平台频控或页面生命周期异常的可能性较高，应停止继续点击。
 
 ## 发简历策略
 

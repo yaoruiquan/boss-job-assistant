@@ -33,6 +33,7 @@ MVP 默认动作：
 - 筛选条件：`references/filter-conditions.md`
 - 规则格式：`references/rule-schema.md`
 - 执行流程：`references/workflow.md`
+- 失败原因：`references/failure-reasons.md`
 
 ## 固定命令
 
@@ -77,6 +78,9 @@ MCP wrapper：
 - `scripts/inspect_boss_actions.js`：只读诊断当前页面是否有可见 `立即沟通`、输入框、验证状态；不能代替 MCP snapshot。
 - `scripts/mcp_greet_once.js`：启动 `chrome-devtools-mcp` stdio server，并通过 MCP `list_pages/take_snapshot/click/take_snapshot` 做单条打招呼验证。
 - `scripts/mcp_snapshot_status.js`：启动 `chrome-devtools-mcp` stdio server，并通过 MCP 只读 snapshot 检查页面状态。
+- `scripts/lib/boss_policy.js`：统一浏览器异常、人工关口和点击后结果分类。
+- `scripts/lib/run_log.js`：把打招呼尝试写入本地 `data/runs-YYYY-MM-DD.jsonl`，默认不提交。
+- `scripts/test_policy.js`：策略分类的轻量回归测试。
 
 ## 执行原则
 
@@ -87,3 +91,4 @@ MCP wrapper：
 5. 页面选择器不稳定时，停止自动点击，改为截图和候选清单。
 6. 不自动捏造个人经历、薪资、到岗时间或项目事实；回复内容规则后续单独配置。
 7. 打招呼成功必须有强证据：`继续沟通`、`已沟通`、聊天输入区、或跳转 `/web/geek/chat`。点击后跳首页或仍无法确认时必须判为失败。
+8. 点击 `立即沟通` 后出现 target/page closed 时，记录为 `quota_or_rate_limit_suspected`，停止继续点击，不重试同一岗位。

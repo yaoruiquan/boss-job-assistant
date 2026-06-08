@@ -3,6 +3,14 @@
 
 const { spawn } = require("child_process");
 const path = require("path");
+const { appendRunLog } = require("./lib/run_log");
+const {
+  classifyAfterChatClick,
+  classifyBrowserText,
+  hasStopGate,
+  isStrongCommunicationEvidence,
+  isTransientBrowserText
+} = require("./lib/boss_policy");
 
 const WRAPPER = path.join(__dirname, "chrome-devtools-mcp-wrapper.sh");
 const WAIT_MS = Number(process.argv[2] || "10000");
@@ -82,6 +90,11 @@ function summarize(text, max = 9000) {
   return text.replace(/\n\s*\n/g, "\n").slice(0, max);
 }
 
+function printAndLog(payload) {
+  const logPath = appendRunLog({ script: path.basename(__filename), ...payload });
+  console.log(JSON.stringify({ ...payload, logPath }, null, 2));
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -142,19 +155,11 @@ function findSendLine(text) {
   );
 }
 
-function hasStopGate(text) {
-  if (/验证码|安全验证|滑块|账号异常/.test(text)) return "verify_required";
-  if (/登录\/注册|登录账号/.test(text)) return "login_required";
-  if (/请完善简历/.test(text)) return "resume_profile_required";
-  return "";
-}
-
 async function stableSnapshot(client, attempts = 8) {
   let text = "";
   for (let i = 0; i < attempts; i += 1) {
     text = textFromResult(await callTool(client, "take_snapshot"));
-    const transient = /Could not connect to Chrome|Failed to fetch browser webSocket URL|Protocol error|Target closed|No page selected|Cannot find context/i.test(text);
-    if (!transient && text.length > 1000) return text;
+    if (!isTransientBrowserText(text) && text.length > 1000) return text;
     await sleep(2000);
   }
   return text;
@@ -176,15 +181,15 @@ async function main() {
     const pages = textFromResult(await callTool(client, "list_pages"));
     trace.push("take_snapshot:list");
     let snapshot = await stableSnapshot(client);
-    const stopReason = hasStopGate(snapshot);
-    if (stopReason) {
-      console.log(JSON.stringify({ ok: false, reason: stopReason, trace, pages, snapshotStart: summarize(snapshot) }, null, 2));
+    const initialFailure = classifyBrowserText(snapshot);
+    if (initialFailure || hasStopGate(snapshot)) {
+      printAndLog({ ok: false, reason: initialFailure || "stop_gate", trace, pages, snapshotStart: summarize(snapshot) });
       return;
     }
 
     const candidates = extractCandidates(snapshot);
     if (!candidates.length) {
-      console.log(JSON.stringify({ ok: false, reason: "matching_candidate_not_found", trace, pages, snapshotStart: summarize(snapshot) }, null, 2));
+      printAndLog({ ok: false, reason: "matching_candidate_not_found", trace, pages, snapshotStart: summarize(snapshot) });
       return;
     }
 
@@ -204,14 +209,15 @@ async function main() {
       stage: STAGE_RE.test(snapshot) || knownCompanyPass
     };
     if (!Object.values(evidence).every(Boolean)) {
-      console.log(JSON.stringify({ ok: false, reason: "detail_filter_not_confirmed", trace, candidate, evidence, detailSnapshotStart: summarize(snapshot) }, null, 2));
+      const detailReason = classifyBrowserText(snapshot) || "detail_filter_not_confirmed";
+      printAndLog({ ok: false, reason: detailReason, trace, candidate, evidence, detailSnapshotStart: summarize(snapshot) });
       return;
     }
 
     const chatLine = findChatButtonLine(snapshot);
     const chatUid = uidFromLine(chatLine);
     if (!chatUid) {
-      console.log(JSON.stringify({ ok: false, reason: "chat_button_uid_not_found", trace, candidate, evidence, detailSnapshotStart: summarize(snapshot) }, null, 2));
+      printAndLog({ ok: false, reason: "chat_button_uid_not_found", trace, candidate, evidence, detailSnapshotStart: summarize(snapshot) });
       return;
     }
 
@@ -221,25 +227,23 @@ async function main() {
 
     trace.push("take_snapshot:chat");
     snapshot = await stableSnapshot(client);
-    const chatStopReason = hasStopGate(snapshot);
-    if (chatStopReason) {
-      console.log(JSON.stringify({ ok: false, reason: chatStopReason, trace, candidate, evidence, chatLine, chatSnapshotStart: summarize(snapshot) }, null, 2));
-      return;
-    }
-
     const rootUrl = rootUrlFromSnapshot(snapshot);
-    const established = /\/web\/geek\/chat/.test(rootUrl) && /(\[送达\]|\[已读\]|您正在与Boss|正在沟通|新沟通)/.test(snapshot);
-    if (established) {
+    const afterChatReason = classifyAfterChatClick(snapshot, rootUrl);
+    if (afterChatReason === "communication_established") {
       const screenshotPath = `/private/tmp/boss-job-assistant-greet-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: true, reason: "communication_established_no_extra_send", sentExtraMessage: false, initialized: initialized.serverInfo || null, trace, candidate, evidence, chatLine, screenshotPath, finalSnapshotStart: summarize(snapshot) }, null, 2));
+      printAndLog({ ok: true, reason: "communication_established_no_extra_send", sentExtraMessage: false, initialized: initialized.serverInfo || null, trace, candidate, evidence, chatLine, screenshotPath, finalSnapshotStart: summarize(snapshot) });
+      return;
+    }
+    if (afterChatReason !== "unknown_after_click") {
+      printAndLog({ ok: false, reason: afterChatReason, trace, candidate, evidence, chatLine, chatSnapshotStart: summarize(snapshot) });
       return;
     }
 
     const inputLine = findInputLine(snapshot);
     const inputUid = uidFromLine(inputLine);
     if (!inputUid) {
-      console.log(JSON.stringify({ ok: false, reason: "chat_input_uid_not_found", trace, candidate, evidence, chatLine, chatSnapshotStart: summarize(snapshot) }, null, 2));
+      printAndLog({ ok: false, reason: "chat_input_uid_not_found", trace, candidate, evidence, chatLine, chatSnapshotStart: summarize(snapshot) });
       return;
     }
 
@@ -253,7 +257,7 @@ async function main() {
     const sendLine = findSendLine(snapshot);
     const sendUid = uidFromLine(sendLine);
     if (!sendUid) {
-      console.log(JSON.stringify({ ok: false, reason: "send_button_uid_not_found_after_fill", trace, candidate, evidence, inputLine, beforeSendSnapshotStart: summarize(snapshot) }, null, 2));
+      printAndLog({ ok: false, reason: "send_button_uid_not_found_after_fill", trace, candidate, evidence, inputLine, beforeSendSnapshotStart: summarize(snapshot) });
       return;
     }
 
@@ -262,10 +266,10 @@ async function main() {
     await sleep(2500);
     trace.push("take_snapshot:after_send");
     snapshot = await stableSnapshot(client);
-    const success = snapshot.includes(GREETING) || /(\[送达\]|\[已读\]|您正在与Boss|正在沟通|\/web\/geek\/chat)/.test(snapshot);
+    const success = snapshot.includes(GREETING) || isStrongCommunicationEvidence(snapshot, rootUrlFromSnapshot(snapshot));
     const screenshotPath = `/private/tmp/boss-job-assistant-greet-${Date.now()}.png`;
     await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-    console.log(JSON.stringify({ ok: success, reason: success ? "greeting_sent_with_strong_signal" : "greeting_sent_but_not_confirmed", sentExtraMessage: true, trace, candidate, evidence, chatLine, inputLine, sendLine, screenshotPath, finalSnapshotStart: summarize(snapshot) }, null, 2));
+    printAndLog({ ok: success, reason: success ? "greeting_sent_with_strong_signal" : "greeting_sent_but_not_confirmed", sentExtraMessage: true, trace, candidate, evidence, chatLine, inputLine, sendLine, screenshotPath, finalSnapshotStart: summarize(snapshot) });
   } finally {
     client.stop();
   }

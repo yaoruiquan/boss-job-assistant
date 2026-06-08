@@ -3,6 +3,14 @@
 
 const { spawn } = require("child_process");
 const path = require("path");
+const { appendRunLog } = require("./lib/run_log");
+const {
+  classifyAfterChatClick,
+  classifyBrowserText,
+  hasStopGate,
+  isStrongCommunicationEvidence,
+  isTransientBrowserText
+} = require("./lib/boss_policy");
 
 const WRAPPER = path.join(__dirname, "chrome-devtools-mcp-wrapper.sh");
 const SEARCH_URL = "https://www.zhipin.com/web/geek/jobs?query=ai%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101210100";
@@ -89,6 +97,11 @@ function summarize(text, max = 8000) {
   return text.replace(/\n\s*\n/g, "\n").slice(0, max);
 }
 
+function printAndLog(payload) {
+  const logPath = appendRunLog({ script: path.basename(__filename), ...payload });
+  console.log(JSON.stringify({ ...payload, logPath }, null, 2));
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -107,8 +120,7 @@ async function snapshot(client, attempts = 6) {
   for (let i = 0; i < attempts; i += 1) {
     text = textFromResult(await callTool(client, "take_snapshot", {}));
     const lines = text.trim().split(/\n/).length;
-    const transient = /Could not connect to Chrome|Failed to fetch browser webSocket URL|Protocol error|Target closed|No page selected|Cannot find context|does not belong to the document/i.test(text);
-    if (!transient && text.length > 1000 && lines > 20 && !/ busy url=/.test(text.split(/\n/)[1] || "")) return text;
+    if (!isTransientBrowserText(text) && text.length > 1000 && lines > 20 && !/ busy url=/.test(text.split(/\n/)[1] || "")) return text;
     await sleep(2000);
   }
   return text;
@@ -155,13 +167,6 @@ function findSendLine(text) {
     /发送|Send/.test(line) &&
     Boolean(uidFromLine(line))
   );
-}
-
-function hasStopGate(text) {
-  if (/验证码|安全验证|滑块|账号异常/.test(text)) return "verify_required";
-  if (/登录\/注册|登录账号/.test(text)) return "login_required";
-  if (/请完善简历/.test(text)) return "resume_profile_required";
-  return "";
 }
 
 function extractCandidates(text) {
@@ -225,8 +230,9 @@ async function main() {
     await sleep(10000);
     trace.push("list_pages");
     const initialPages = await listPages(client, 8);
-    if (/Could not connect to Chrome|Failed to fetch browser webSocket URL/i.test(initialPages)) {
-      console.log(JSON.stringify({ ok: false, reason: "mcp_chrome_connect_failed", trace, pages: initialPages }, null, 2));
+    const initialPagesFailure = classifyBrowserText(initialPages);
+    if (initialPagesFailure) {
+      printAndLog({ ok: false, reason: initialPagesFailure, trace, pages: initialPages });
       return;
     }
     if (process.env.BOSS_SKIP_NAV === "1") {
@@ -239,11 +245,11 @@ async function main() {
 
     trace.push("take_snapshot:list");
     let current = await snapshot(client);
-    const stopReason = hasStopGate(current);
+    const stopReason = classifyBrowserText(current) || (hasStopGate(current) ? "stop_gate" : "");
     if (stopReason) {
       const screenshotPath = `/private/tmp/boss-job-assistant-stop-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: stopReason, trace, screenshotPath, listSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: stopReason, trace, screenshotPath, listSnapshotStart: summarize(current) });
       return;
     }
 
@@ -251,7 +257,7 @@ async function main() {
     if (!candidates.length) {
       const screenshotPath = `/private/tmp/boss-job-assistant-no-candidate-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: "matching_list_candidate_not_found", trace, screenshotPath, listSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: "matching_list_candidate_not_found", trace, screenshotPath, listSnapshotStart: summarize(current) });
       return;
     }
 
@@ -265,18 +271,18 @@ async function main() {
 
     trace.push("take_snapshot:detail");
     current = await snapshot(client);
-    const detailStopReason = hasStopGate(current);
+    const detailStopReason = classifyBrowserText(current) || (hasStopGate(current) ? "stop_gate" : "");
     if (detailStopReason) {
       const screenshotPath = `/private/tmp/boss-job-assistant-stop-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: detailStopReason, trace, candidate, screenshotPath, detailSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: detailStopReason, trace, candidate, screenshotPath, detailSnapshotStart: summarize(current) });
       return;
     }
     const match = detailMatches(current);
     if (!match.ok) {
       const screenshotPath = `/private/tmp/boss-job-assistant-filter-miss-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({
+      printAndLog({
         ok: false,
         reason: "detail_filter_not_confirmed",
         trace,
@@ -284,7 +290,7 @@ async function main() {
         filterEvidence: match.evidence,
         screenshotPath,
         detailSnapshotStart: summarize(current)
-      }, null, 2));
+      });
       return;
     }
 
@@ -293,7 +299,7 @@ async function main() {
     if (!chatUid) {
       const screenshotPath = `/private/tmp/boss-job-assistant-no-chat-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: "chat_button_uid_not_found", trace, candidate, filterEvidence: match.evidence, screenshotPath, detailSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: "chat_button_uid_not_found", trace, candidate, filterEvidence: match.evidence, screenshotPath, detailSnapshotStart: summarize(current) });
       return;
     }
 
@@ -315,20 +321,19 @@ async function main() {
 
     trace.push("take_snapshot:chat");
     current = await snapshot(client);
-    const chatStopReason = hasStopGate(current);
-    if (chatStopReason) {
+    const rootUrl = rootUrlFromSnapshot(current);
+    const afterChatReason = classifyAfterChatClick(current, rootUrl);
+    if (afterChatReason !== "unknown_after_click" && afterChatReason !== "communication_established") {
       const screenshotPath = `/private/tmp/boss-job-assistant-stop-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: chatStopReason, trace, candidate, filterEvidence: match.evidence, chatLine, screenshotPath, chatSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: afterChatReason, trace, candidate, filterEvidence: match.evidence, chatLine, screenshotPath, chatSnapshotStart: summarize(current) });
       return;
     }
-    const rootUrl = rootUrlFromSnapshot(current);
-    const established = /\/web\/geek\/chat/.test(rootUrl) && /(\[送达\]|\[已读\]|您正在与Boss|正在沟通|新沟通)/.test(current);
-    if (established && process.env.BOSS_FORCE_EXTRA_SEND !== "1") {
+    if (afterChatReason === "communication_established" && process.env.BOSS_FORCE_EXTRA_SEND !== "1") {
       const screenshotPath = `/private/tmp/boss-job-assistant-greet-${Date.now()}.png`;
       trace.push("take_screenshot");
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({
+      printAndLog({
         ok: true,
         reason: "communication_established_no_extra_send",
         success: true,
@@ -347,7 +352,7 @@ async function main() {
         chatLine,
         screenshotPath,
         finalSnapshotStart: summarize(current)
-      }, null, 2));
+      });
       return;
     }
 
@@ -356,7 +361,7 @@ async function main() {
     if (!inputUid) {
       const screenshotPath = `/private/tmp/boss-job-assistant-no-input-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: "chat_input_uid_not_found", trace, candidate, filterEvidence: match.evidence, chatLine, pagesAfterChat, screenshotPath, chatSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: "chat_input_uid_not_found", trace, candidate, filterEvidence: match.evidence, chatLine, pagesAfterChat, screenshotPath, chatSnapshotStart: summarize(current) });
       return;
     }
 
@@ -373,7 +378,7 @@ async function main() {
     if (!sendUid) {
       const screenshotPath = `/private/tmp/boss-job-assistant-no-send-${Date.now()}.png`;
       await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-      console.log(JSON.stringify({ ok: false, reason: "send_button_uid_not_found_after_fill", trace, candidate, filterEvidence: match.evidence, inputLine, screenshotPath, beforeSendSnapshotStart: summarize(current) }, null, 2));
+      printAndLog({ ok: false, reason: "send_button_uid_not_found_after_fill", trace, candidate, filterEvidence: match.evidence, inputLine, screenshotPath, beforeSendSnapshotStart: summarize(current) });
       return;
     }
 
@@ -382,11 +387,11 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     trace.push("take_snapshot:after_send");
     current = await snapshot(client);
-    const success = current.includes(GREETING) || /(\[送达\]|\[已读\]|您正在与Boss|正在沟通|\/web\/geek\/chat)/.test(current);
+    const success = current.includes(GREETING) || isStrongCommunicationEvidence(current, rootUrlFromSnapshot(current));
     const screenshotPath = `/private/tmp/boss-job-assistant-greet-${Date.now()}.png`;
     trace.push("take_screenshot");
     await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
-    console.log(JSON.stringify({
+    printAndLog({
       ok: success,
       reason: success ? "greeting_sent_with_strong_signal" : "greeting_sent_but_not_confirmed",
       success,
@@ -400,7 +405,7 @@ async function main() {
       sendLine,
       screenshotPath,
       finalSnapshotStart: summarize(current)
-    }, null, 2));
+    });
   } finally {
     client.stop();
   }

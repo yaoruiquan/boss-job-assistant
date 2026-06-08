@@ -3,6 +3,14 @@
 
 const { spawn } = require("child_process");
 const path = require("path");
+const { appendRunLog } = require("./lib/run_log");
+const {
+  classifyAfterChatClick,
+  classifyBrowserText,
+  hasStopGate,
+  isStrongCommunicationEvidence,
+  isTransientBrowserText
+} = require("./lib/boss_policy");
 
 const SCRIPT_DIR = __dirname;
 const WRAPPER = path.join(SCRIPT_DIR, "chrome-devtools-mcp-wrapper.sh");
@@ -69,6 +77,11 @@ function textFromResult(result) {
   return content.map((item) => item.text || "").join("\n");
 }
 
+function printAndLog(payload) {
+  const logPath = appendRunLog({ script: path.basename(__filename), ...payload });
+  console.log(JSON.stringify({ ...payload, logPath }, null, 2));
+}
+
 function findUidForImmediateChat(snapshotText) {
   const lines = snapshotText.split(/\n/);
   const candidates = lines.filter((line) => /立即沟通|继续沟通|打招呼/.test(line));
@@ -92,6 +105,11 @@ function extractPageIds(listText) {
   return ids;
 }
 
+function rootUrlFromSnapshot(text) {
+  const match = text.match(/RootWebArea[^\n]*\burl="([^"]+)"/);
+  return match ? match[1] : "";
+}
+
 async function callTool(client, name, args = {}) {
   return client.request("tools/call", { name, arguments: args });
 }
@@ -102,7 +120,7 @@ async function takeSnapshotWithRetry(client) {
     const result = await callTool(client, "take_snapshot", {});
     const text = textFromResult(result);
     lastText = text;
-    if (!/Protocol error|Cannot find context|Target closed/i.test(text)) {
+    if (!isTransientBrowserText(text)) {
       return { result, text, attempt };
     }
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -140,24 +158,24 @@ async function main() {
 
     const before = await takeSnapshotWithRetry(client);
     const beforeText = before.text;
-    const hasVerify = /验证码|安全验证|滑块|登录\/注册/.test(beforeText);
+    const beforeReason = classifyBrowserText(beforeText) || (hasStopGate(beforeText) ? "stop_gate" : "");
     const target = findUidForImmediateChat(beforeText);
 
-    if (hasVerify) {
-      console.log(JSON.stringify({
+    if (beforeReason) {
+      printAndLog({
         ok: false,
         stopped: true,
-        reason: "login_or_verify_required_in_mcp_snapshot",
+        reason: beforeReason,
         initialized: initialized.serverInfo || null,
         tools: toolNames,
         pages: pagesText.slice(0, 1200),
         beforeSnapshotStart: beforeText.slice(0, 3000)
-      }, null, 2));
+      });
       return;
     }
 
     if (!target.uid) {
-      console.log(JSON.stringify({
+      printAndLog({
         ok: false,
         stopped: true,
         reason: "immediate_chat_uid_not_found",
@@ -166,7 +184,7 @@ async function main() {
         pages: pagesText.slice(0, 1200),
         candidateLine: target.line,
         beforeSnapshotStart: beforeText.slice(0, 5000)
-      }, null, 2));
+      });
       return;
     }
 
@@ -174,10 +192,11 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const after = await takeSnapshotWithRetry(client);
     const afterText = after.text;
-    const success = /继续沟通|已沟通|沟通过|刚刚沟通|发送消息|请输入|发送/.test(afterText) || /web\/geek\/chat/.test(afterText);
+    const afterReason = classifyAfterChatClick(afterText, rootUrlFromSnapshot(afterText));
+    const success = isStrongCommunicationEvidence(afterText, rootUrlFromSnapshot(afterText));
 
-    console.log(JSON.stringify({
-      ok: true,
+    printAndLog({
+      ok: success,
       mcpFlow: ["initialize", "tools/list", "tools/call:list_pages", "tools/call:take_snapshot", "tools/call:click", "tools/call:take_snapshot"],
       targetUrl: TARGET_URL,
       initialized: initialized.serverInfo || null,
@@ -190,8 +209,9 @@ async function main() {
       beforeSnapshotAttempt: before.attempt,
       beforeSnapshotStart: beforeText.slice(0, 3000),
       afterSnapshotAttempt: after.attempt,
+      reason: success ? "communication_established" : afterReason,
       afterSnapshotStart: afterText.slice(0, 5000)
-    }, null, 2));
+    });
   } finally {
     client.stop();
   }
