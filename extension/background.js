@@ -62,7 +62,7 @@ async function saveLastResult(result) {
 }
 
 function isGuardedCommand(command) {
-  return command === "greet_current" || command === "greet_detail";
+  return command === "start_automation" || command === "greet_current" || command === "greet_detail";
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const commandButtons = ["status", "startChrome", "snapshot", "greetDetail", "greetCurrent", "options"];
+const commandButtons = ["status", "startChrome", "snapshot", "greetDetail", "startAutomation", "options"];
 
 let control = { enabled: false, paused: true, lastResult: null, updatedAt: "" };
 let busy = false;
@@ -100,7 +100,7 @@ $("startChrome").addEventListener("click", async () => {
 });
 $("snapshot").addEventListener("click", () => native("snapshot", "扫描中"));
 $("greetDetail").addEventListener("click", () => native("greet_detail", "沟通中"));
-$("greetCurrent").addEventListener("click", () => native("greet_current", "沟通中"));
+$("startAutomation").addEventListener("click", () => native("start_automation", "自动化中"));
 $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 loadState();

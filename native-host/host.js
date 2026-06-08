@@ -183,7 +183,7 @@ async function handle(message) {
   if (command === "snapshot") {
     return runJson(process.execPath, [path.join(SKILL_ROOT, "scripts/mcp_snapshot_status.js"), "1500"]);
   }
-  if (command === "greet_current") {
+  if (command === "start_automation" || command === "greet_current") {
     return runJson(process.execPath, [path.join(SKILL_ROOT, "scripts/mcp_dump_snapshot.js"), "--greet-current", "1500", message.rules?.greeting || ""], { timeout: 150000 });
   }
   if (command === "greet_detail") {

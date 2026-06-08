@@ -185,6 +185,7 @@ button:disabled {
   border-color: var(--green);
   background: var(--green);
   font-weight: 700;
+  font-size: 14px;
 }
 
 .commands .primary:hover:not(:disabled) {
