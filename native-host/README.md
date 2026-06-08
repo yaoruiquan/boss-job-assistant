@@ -6,12 +6,13 @@ Chrome 扩展通过 Native Messaging 调用本地 `host.js`。`host.js` 只调�
 
 1. 在 `chrome://extensions` 开启开发者模式。
 2. 加载仓库里的 `extension/` 目录。
-3. 复制扩展 ID。
-4. 执行：
+3. 执行：
 
 ```bash
-./native-host/install-host.sh <extension-id>
+./native-host/install-host.sh auto
 ```
+
+如果自动识别失败，再复制扩展 ID 后执行 `./native-host/install-host.sh <extension-id>`。
 
 安装后，Chrome 会读取：
 

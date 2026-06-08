@@ -214,12 +214,13 @@ extension/popup.js
 1. 打开 `chrome://extensions`。
 2. 开启开发者模式。
 3. 点击“加载已解压的扩展程序”，选择本仓库的 `extension/` 目录。
-4. 复制扩展 ID。
-5. 注册 Native Host：
+4. 注册 Native Host：
 
 ```bash
-./native-host/install-host.sh <extension-id>
+./native-host/install-host.sh auto
 ```
+
+如果自动识别失败，再复制扩展 ID 后执行 `./native-host/install-host.sh <extension-id>`。
 
 插件按钮：
 
