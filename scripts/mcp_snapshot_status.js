@@ -52,6 +52,33 @@ function textFromResult(result) {
   return (result?.content || []).map((item) => item.text || "").join("\n");
 }
 
+function extractPages(text) {
+  const pages = [];
+  for (const line of text.split(/\n/)) {
+    const match = line.match(/^(\d+):\s+(\S+)(.*)$/);
+    if (!match) continue;
+    pages.push({
+      pageId: Number(match[1]),
+      url: match[2],
+      selected: /\[selected\]/.test(match[3] || "")
+    });
+  }
+  return pages;
+}
+
+function selectPreferredPage(pagesText) {
+  const pages = extractPages(pagesText);
+  return (
+    pages.find((page) => /zhipin\.com\/web\/geek\/jobs/.test(page.url)) ||
+    pages.find((page) => /zhipin\.com\/job_detail\//.test(page.url)) ||
+    pages.find((page) => /zhipin\.com\/web\/geek\/chat/.test(page.url)) ||
+    pages.find((page) => /^https?:\/\//.test(page.url) && !/about:blank/.test(page.url)) ||
+    pages.find((page) => page.selected) ||
+    pages[0] ||
+    null
+  );
+}
+
 async function main() {
   const client = startServer();
   try {
@@ -64,9 +91,9 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
     const pages = await client.request("tools/call", { name: "list_pages", arguments: {} });
     const pagesText = textFromResult(pages);
-    const pageMatch = pagesText.match(/^(\d+):/m);
-    if (pageMatch) {
-      await client.request("tools/call", { name: "select_page", arguments: { pageId: Number(pageMatch[1]), bringToFront: true } });
+    const preferredPage = selectPreferredPage(pagesText);
+    if (preferredPage) {
+      await client.request("tools/call", { name: "select_page", arguments: { pageId: preferredPage.pageId, bringToFront: true } });
     }
     let snapshotText = "";
     let snapshotAttempt = 0;
@@ -83,6 +110,7 @@ async function main() {
       waitMs: WAIT_MS,
       initialized: initialized.serverInfo || null,
       pages: pagesText.slice(0, 1200),
+      selectedPage: preferredPage || null,
       snapshotAttempt,
       success,
       hasImmediateChat: /立即沟通/.test(snapshotText),

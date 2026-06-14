@@ -90,6 +90,56 @@ function rootUrlFromSnapshot(text) {
   return match ? match[1] : "";
 }
 
+function extractPages(text) {
+  const pages = [];
+  for (const line of text.split(/\n/)) {
+    const match = line.match(/^(\d+):\s+(\S+)(.*)$/);
+    if (!match) continue;
+    pages.push({
+      pageId: Number(match[1]),
+      url: match[2],
+      selected: /\[selected\]/.test(match[3] || ""),
+      line
+    });
+  }
+  return pages;
+}
+
+function normalizeTargetUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
+function selectPreferredPage(pagesText, targetUrl = "") {
+  const pages = extractPages(pagesText);
+  if (!pages.length) return null;
+  const targetBase = normalizeTargetUrl(targetUrl);
+  return (
+    pages.find((page) => targetBase && page.url.startsWith(targetBase)) ||
+    pages.find((page) => /zhipin\.com\/web\/geek\/jobs/.test(page.url)) ||
+    pages.find((page) => /zhipin\.com\/job_detail\//.test(page.url)) ||
+    pages.find((page) => /zhipin\.com\/web\/geek\/chat/.test(page.url)) ||
+    pages.find((page) => /^https?:\/\//.test(page.url) && !/about:blank/.test(page.url)) ||
+    pages.find((page) => page.selected) ||
+    pages[0]
+  );
+}
+
+function hasTargetOrBossPage(pagesText, targetUrl = "") {
+  const pages = extractPages(pagesText);
+  const targetBase = normalizeTargetUrl(targetUrl);
+  return pages.some((page) =>
+    (targetBase && page.url.startsWith(targetBase)) ||
+    /zhipin\.com\/web\/geek\/jobs/.test(page.url) ||
+    /zhipin\.com\/job_detail\//.test(page.url) ||
+    /zhipin\.com\/web\/geek\/chat/.test(page.url)
+  );
+}
+
 function summarize(text, max = 9000) {
   return text.replace(/\n\s*\n/g, "\n").slice(0, max);
 }
@@ -149,6 +199,15 @@ function findSendLine(text) {
   );
 }
 
+function findSearchButtonLine(text) {
+  return findLine(text, (line) =>
+    /uid=/.test(line) &&
+    /\b(link|button)\b/.test(line) &&
+    /搜索/.test(line) &&
+    Boolean(uidFromLine(line))
+  );
+}
+
 async function stableSnapshot(client, attempts = 8) {
   let text = "";
   for (let i = 0; i < attempts; i += 1) {
@@ -157,6 +216,17 @@ async function stableSnapshot(client, attempts = 8) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
   return text;
+}
+
+async function takeImmediateSnapshot(client, pagesText, targetUrl = "") {
+  const preferredPage = selectPreferredPage(pagesText, targetUrl);
+  let pages = pagesText;
+  if (preferredPage && !preferredPage.selected) {
+    await callTool(client, "select_page", { pageId: preferredPage.pageId, bringToFront: true });
+    pages = textFromResult(await callTool(client, "list_pages"));
+  }
+  const snapshot = textFromResult(await callTool(client, "take_snapshot"));
+  return { pages, preferredPage, snapshot };
 }
 
 function printAndLog(payload) {
@@ -174,21 +244,68 @@ async function main() {
     });
     client.notify("notifications/initialized");
     let navigateResult = null;
+    let newPageResult = null;
+    let immediateSnapshot = "";
+    let immediatePages = "";
+    let immediatePreferredPage = null;
     if (TARGET_URL) {
       navigateResult = textFromResult(await callTool(client, "navigate_page", { type: "url", url: TARGET_URL, timeout: 15000 }));
+      immediatePages = textFromResult(await callTool(client, "list_pages"));
+      const immediate = await takeImmediateSnapshot(client, immediatePages, TARGET_URL).catch(() => null);
+      if (immediate) {
+        immediatePages = immediate.pages;
+        immediatePreferredPage = immediate.preferredPage;
+        immediateSnapshot = immediate.snapshot;
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
-    const pages = textFromResult(await callTool(client, "list_pages"));
-    let snapshot = await stableSnapshot(client);
+    let pages = immediatePages;
+    let snapshot = immediateSnapshot;
+    const immediateRootUrl = rootUrlFromSnapshot(immediateSnapshot);
+    const immediateUsable = immediateSnapshot &&
+      !isTransientBrowserText(immediateSnapshot) &&
+      immediateRootUrl &&
+      immediateRootUrl !== "about:blank";
+    if (!immediateUsable) {
+      await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
+      pages = textFromResult(await callTool(client, "list_pages"));
+    }
+    if (TARGET_URL && !immediateUsable && !hasTargetOrBossPage(pages, TARGET_URL)) {
+      newPageResult = textFromResult(await callTool(client, "new_page", { url: TARGET_URL, timeout: 15000 }));
+      immediatePages = textFromResult(await callTool(client, "list_pages"));
+      const immediate = await takeImmediateSnapshot(client, immediatePages, TARGET_URL).catch(() => null);
+      if (immediate) {
+        pages = immediate.pages;
+        immediatePreferredPage = immediate.preferredPage;
+        immediateSnapshot = immediate.snapshot;
+        snapshot = immediate.snapshot;
+      }
+      const newPageRootUrl = rootUrlFromSnapshot(snapshot);
+      if (!snapshot || isTransientBrowserText(snapshot) || !newPageRootUrl || newPageRootUrl === "about:blank") {
+        await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
+        pages = textFromResult(await callTool(client, "list_pages"));
+      }
+    }
+    const preferredPage = selectPreferredPage(pages, TARGET_URL);
+    if (preferredPage && !preferredPage.selected) {
+      await callTool(client, "select_page", { pageId: preferredPage.pageId, bringToFront: true });
+      pages = textFromResult(await callTool(client, "list_pages"));
+    }
+    if (!snapshot || rootUrlFromSnapshot(snapshot) === "about:blank") {
+      snapshot = await stableSnapshot(client);
+    }
     if (GREET_CURRENT) {
-      const trace = ["list_pages", "take_snapshot:list"];
+      const trace = [
+        "list_pages",
+        (preferredPage || immediatePreferredPage) ? `select_page:${(preferredPage || immediatePreferredPage).pageId}:${(preferredPage || immediatePreferredPage).url}` : "select_page:none",
+        "take_snapshot:list"
+      ];
       const initialFailure = classifyBrowserText(snapshot);
       if (initialFailure) {
-        printAndLog({ ok: false, reason: initialFailure, trace, pages, snapshotStart: summarize(snapshot) });
+        printAndLog({ ok: false, reason: initialFailure, trace, navigateResult, newPageResult, pages, immediateSnapshotStart: summarize(immediateSnapshot), snapshotStart: summarize(snapshot) });
         return;
       }
       if (hasStopGate(snapshot)) {
-        printAndLog({ ok: false, reason: classifyBrowserText(snapshot) || "stop_gate", trace, pages, snapshotStart: summarize(snapshot) });
+        printAndLog({ ok: false, reason: classifyBrowserText(snapshot) || "stop_gate", trace, navigateResult, newPageResult, pages, immediateSnapshotStart: summarize(immediateSnapshot), snapshotStart: summarize(snapshot) });
         return;
       }
       if (GREET_DETAIL) {
@@ -260,10 +377,27 @@ async function main() {
       }
       const candidates = extractCandidates(snapshot);
       if (!candidates.length) {
-        printAndLog({ ok: false, reason: "matching_candidate_not_found", trace, pages, snapshotStart: summarize(snapshot) });
+        const searchLine = findSearchButtonLine(snapshot);
+        const searchUid = uidFromLine(searchLine);
+        if (searchUid) {
+          trace.push(`click:search:${searchUid}`);
+          await callTool(client, "click", { uid: searchUid, includeSnapshot: true });
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          trace.push("take_snapshot:after_search");
+          pages = textFromResult(await callTool(client, "list_pages"));
+          snapshot = await stableSnapshot(client);
+        }
+      }
+      const refreshedCandidates = extractCandidates(snapshot);
+      if (!refreshedCandidates.length) {
+        const rootUrl = rootUrlFromSnapshot(snapshot);
+        const reason = rootUrl === "about:blank" ? "search_returned_blank_page" : "matching_candidate_not_found";
+        const screenshotPath = `/private/tmp/boss-job-assistant-no-candidate-${Date.now()}.png`;
+        await callTool(client, "take_screenshot", { format: "png", filePath: screenshotPath }).catch(() => null);
+        printAndLog({ ok: false, reason, trace, navigateResult, newPageResult, pages, screenshotPath, immediateSnapshotStart: summarize(immediateSnapshot), snapshotStart: summarize(snapshot) });
         return;
       }
-      const candidate = candidates[0];
+      const candidate = refreshedCandidates[0];
       trace.push(`click:job:${candidate.uid}`);
       await callTool(client, "click", { uid: candidate.uid, includeSnapshot: true });
       await new Promise((resolve) => setTimeout(resolve, 4000));
